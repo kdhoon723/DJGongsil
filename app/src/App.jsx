@@ -260,7 +260,7 @@ function WhenStep({ clock, day, setDay, t, setT, onNow, onNext }) {
       <div className="flex-1" />
       <button
         onClick={onNext}
-        className="press mt-8 w-full rounded-2xl bg-ink py-4 text-base font-bold text-paper"
+        className="press mt-8 w-full rounded-2xl bg-pine py-4 text-base font-bold text-paper shadow-[0_4px_18px_rgba(31,111,77,0.28)]"
       >
         {DAY_LABEL[day]} <span className="tnum">{fmt(t)}</span> · 건물 고르기 →
       </button>
@@ -386,7 +386,7 @@ function RoomsStep({ day, t, bldg, buildings, scored, sort, setSort, onEditWhen,
             key={s.k}
             onClick={() => setSort(s.k)}
             className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
-              sort === s.k ? "bg-ink text-paper" : "text-muted"
+              sort === s.k ? "bg-pine text-paper" : "text-muted"
             }`}
           >
             {s.label}
