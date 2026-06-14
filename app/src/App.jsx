@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 
 const DAYS = ["월", "화", "수", "목", "금"];
 const DAY_LABEL = { 월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일", 금: "금요일" };
 const OPEN = 8 * 60 + 30;
 const CLOSE = 22 * 60 + 40;
+
+// 교시 (1교시 09:00 부터 30분 간격)
+const PERIODS = Array.from({ length: 26 }, (_, i) => {
+  const m = 9 * 60 + i * 30;
+  return { n: i + 1, m };
+});
 
 const toMin = (s) => {
   const [h, m] = s.split(":").map(Number);
@@ -15,32 +22,36 @@ const fmt = (m) =>
 function nowDefaults() {
   const d = new Date();
   const map = { 1: "월", 2: "화", 3: "수", 4: "목", 5: "금" };
-  const day = map[d.getDay()] || "월";
-  const t = Math.min(CLOSE, Math.max(OPEN, d.getHours() * 60 + d.getMinutes()));
-  return { day, t };
+  return {
+    day: map[d.getDay()] || "월",
+    t: Math.min(CLOSE, Math.max(OPEN, d.getHours() * 60 + d.getMinutes())),
+  };
 }
 
 function statusFor(room, day, t) {
   const ds = room.sessions
     .filter((s) => s.day === day)
-    .map((s) => ({ ...s, s: toMin(s.start), e: toMin(s.end) }))
+    .map((s) => ({ s: toMin(s.start), e: toMin(s.end), course: s.course, prof: s.prof }))
     .sort((a, b) => a.s - b.s);
   const cur = ds.find((x) => x.s <= t && t < x.e);
   if (cur) {
-    let end = cur.e;
-    let grew = true;
+    let end = cur.e, grew = true;
     while (grew) {
       grew = false;
-      for (const x of ds)
-        if (x.s <= end && x.e > end) {
-          end = x.e;
-          grew = true;
-        }
+      for (const x of ds) if (x.s <= end && x.e > end) { end = x.e; grew = true; }
     }
     return { free: false, until: end, current: cur };
   }
   const next = ds.find((x) => x.s > t);
-  return { free: true, until: next ? next.s : null, todayCount: ds.length };
+  return { free: true, until: next ? next.s : null, today: ds.length };
+}
+
+// 빈 시간 길이 → 표시 정보
+function freeInfo(st, t) {
+  if (st.until == null) return { mins: 100000, tone: "long", label: "종일 비어요" };
+  const mins = st.until - t;
+  const tone = mins >= 120 ? "long" : mins >= 60 ? "mid" : "soon";
+  return { mins, until: st.until, tone };
 }
 
 function useData() {
@@ -64,14 +75,28 @@ function useClock() {
   return now;
 }
 
+const LAST_BLDG_KEY = "djgongsil:lastBldg";
+
 export default function App() {
   const { data, err } = useData();
   const init = useMemo(nowDefaults, []);
+  const [step, setStep] = useState("when"); // when | where | rooms
   const [day, setDay] = useState(init.day);
   const [t, setT] = useState(init.t);
   const [bldg, setBldg] = useState("전체");
-  const [showBusy, setShowBusy] = useState(false);
+  const [sort, setSort] = useState("duration");
+  const [detail, setDetail] = useState(null);
   const clock = useClock();
+
+  // 스텝 전환 (View Transitions 슬라이드)
+  const go = (next, dir = "forward") => {
+    if (typeof document !== "undefined" && document.startViewTransition) {
+      document.documentElement.dataset.nav = dir;
+      document.startViewTransition(() => flushSync(() => setStep(next)));
+    } else {
+      setStep(next);
+    }
+  };
 
   const buildings = useMemo(() => {
     if (!data) return [];
@@ -80,212 +105,446 @@ export default function App() {
     return [...m.entries()].map(([code, name]) => ({ code, name }));
   }, [data]);
 
-  const computed = useMemo(() => {
-    if (!data) return null;
-    const rooms = data.rooms
-      .filter((r) => bldg === "전체" || r.bldg === bldg)
-      .map((r) => ({ ...r, st: statusFor(r, day, t) }));
-    const free = rooms.filter((r) => r.st.free);
-    const groups = new Map();
-    for (const r of showBusy ? rooms : free) {
-      if (!groups.has(r.bldgName)) groups.set(r.bldgName, []);
-      groups.get(r.bldgName).push(r);
-    }
-    for (const arr of groups.values())
-      arr.sort((a, b) => a.ho.localeCompare(b.ho, "ko", { numeric: true }));
-    return { total: rooms.length, free: free.length, groups };
-  }, [data, day, t, bldg, showBusy]);
+  // (요일,시각) 기준 전체 방 상태
+  const scored = useMemo(() => {
+    if (!data) return [];
+    return data.rooms.map((r) => {
+      const st = statusFor(r, day, t);
+      return { ...r, st, fi: st.free ? freeInfo(st, t) : null };
+    });
+  }, [data, day, t]);
+
+  const freeByBldg = useMemo(() => {
+    const m = new Map();
+    for (const r of scored) if (r.st.free) m.set(r.bldg, (m.get(r.bldg) || 0) + 1);
+    return m;
+  }, [scored]);
+
+  const totalFree = useMemo(() => scored.filter((r) => r.st.free).length, [scored]);
+
+  const pickBldg = (code) => {
+    setBldg(code);
+    if (code !== "전체") localStorage.setItem(LAST_BLDG_KEY, code);
+    go("rooms");
+  };
+
+  const jumpNow = () => {
+    const n = nowDefaults();
+    setDay(n.day);
+    setT(n.t);
+    setBldg("전체");
+    go("rooms");
+  };
 
   if (err) return <Center>데이터를 불러오지 못했어요.</Center>;
-  if (!data || !computed)
-    return <Center>강의실 불러오는 중…</Center>;
-
-  const groups = [...computed.groups.entries()];
+  if (!data) return <Center>강의실 불러오는 중…</Center>;
 
   return (
-    <div className="mx-auto min-h-dvh max-w-3xl px-5 pb-24 sm:px-8">
-      {/* 헤더 */}
-      <header className="flex items-center justify-between border-b border-line py-5">
-        <div className="flex items-baseline gap-2">
-          <span className="serif text-2xl font-medium italic text-pine">DJGongsil</span>
-        </div>
-        <div className="serif tnum text-2xl text-ink-2">
-          {String(clock.getHours()).padStart(2, "0")}
-          <span className="text-muted">:</span>
-          {String(clock.getMinutes()).padStart(2, "0")}
-        </div>
-      </header>
-
-      {/* 히어로 요약 */}
-      <section className="pt-9 pb-7">
-        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted">
-          {DAY_LABEL[day]} · <span className="tnum">{fmt(t)}</span> 기준
-        </p>
-        <h1 className="serif mt-2 text-[2.6rem] leading-[1.05] font-medium text-ink sm:text-5xl">
-          비어있는 강의실{" "}
-          <span className="text-pine">{computed.free}곳</span>
-        </h1>
-        <p className="mt-2 text-sm text-muted">
-          {bldg === "전체" ? "전체 캠퍼스" : buildings.find((b) => b.code === bldg)?.name} ·
-          조회 강의실 <span className="tnum">{computed.total}</span>곳
-        </p>
-      </section>
-
-      {/* 컨트롤 */}
-      <div className="sticky top-0 z-10 -mx-5 border-y border-line bg-paper/90 px-5 py-3 backdrop-blur sm:-mx-8 sm:px-8">
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => {
-              const n = nowDefaults();
-              setDay(n.day);
-              setT(n.t);
-            }}
-            className="rounded-full border border-pine bg-pine/10 px-3.5 py-1.5 text-sm font-semibold text-pine transition hover:bg-pine/20 active:scale-95"
-          >
-            지금
-          </button>
-          <div className="flex items-center rounded-full border border-line bg-raised p-0.5">
-            {DAYS.map((d) => (
-              <button
-                key={d}
-                onClick={() => setDay(d)}
-                className={`h-8 w-9 rounded-full text-sm font-semibold transition ${
-                  day === d
-                    ? "bg-pine text-paper shadow-[0_2px_8px_rgba(31,111,77,0.45)]"
-                    : "text-muted hover:text-ink"
-                }`}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
-          <div className="serif tnum ml-auto text-xl text-pine">{fmt(t)}</div>
-        </div>
-
-        <div className="mt-3 flex items-center gap-3">
-          <span className="tnum text-[11px] text-muted">08:30</span>
-          <input
-            type="range"
-            className="scrub flex-1"
-            min={OPEN}
-            max={CLOSE}
-            step={10}
-            value={t}
-            onChange={(e) => setT(Number(e.target.value))}
+    <div className="mx-auto min-h-dvh max-w-xl">
+      <div style={{ viewTransitionName: "step" }} key={step}>
+        {step === "when" && (
+          <WhenStep
+            clock={clock}
+            day={day}
+            setDay={setDay}
+            t={t}
+            setT={setT}
+            onNow={jumpNow}
+            onNext={() => go("where")}
           />
-          <span className="tnum text-[11px] text-muted">22:40</span>
-        </div>
-
-        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">
-          <Chip active={bldg === "전체"} onClick={() => setBldg("전체")}>
-            전체
-          </Chip>
-          {buildings.map((b) => (
-            <Chip key={b.code} active={bldg === b.code} onClick={() => setBldg(b.code)}>
-              {b.name}
-            </Chip>
-          ))}
-        </div>
+        )}
+        {step === "where" && (
+          <WhereStep
+            day={day}
+            t={t}
+            buildings={buildings}
+            freeByBldg={freeByBldg}
+            totalFree={totalFree}
+            onBack={() => go("when", "backward")}
+            onPick={pickBldg}
+          />
+        )}
+        {step === "rooms" && (
+          <RoomsStep
+            day={day}
+            t={t}
+            bldg={bldg}
+            buildings={buildings}
+            scored={scored}
+            sort={sort}
+            setSort={setSort}
+            onEditWhen={() => go("when", "backward")}
+            onEditWhere={() => go("where", "backward")}
+            onDetail={setDetail}
+          />
+        )}
       </div>
-
-      {/* 토글 */}
-      <div className="flex justify-end pt-4">
-        <button
-          onClick={() => setShowBusy((v) => !v)}
-          className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline"
-        >
-          {showBusy ? "빈 강의실만 보기" : "사용중인 곳도 보기"}
-        </button>
-      </div>
-
-      {/* 결과 */}
-      {groups.length === 0 ? (
-        <p className="serif mt-16 text-center text-lg italic text-muted">
-          {showBusy ? "표시할 강의실이 없어요." : "이 시간엔 빈 강의실이 없네요."}
-        </p>
-      ) : (
-        <div className="mt-3 space-y-9">
-          {groups.map(([name, rooms], gi) => (
-            <section key={name} className="rise" style={{ animationDelay: `${gi * 45}ms` }}>
-              <div className="mb-3 flex items-baseline justify-between border-b border-line pb-2">
-                <h2 className="text-sm font-semibold tracking-wide text-ink">{name}</h2>
-                <span className="tnum text-xs text-muted">{rooms.length}곳</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                {rooms.map((r) => (
-                  <RoomCard key={r.code} room={r} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-
-      <footer className="mt-20 border-t border-line pt-6 text-xs leading-relaxed text-muted">
-        <p>대진대학교 {data.year} 학부·대학원 통합 강의실 시간표 기준</p>
-        <p className="mt-1 opacity-70">
-          빈 강의실은 정규 수업이 없는 시간일 뿐이에요. 실제 이용 가능 여부는 현장에서 확인하세요.
-        </p>
-      </footer>
+      {detail && <DetailSheet room={detail} day={day} t={t} onClose={() => setDetail(null)} />}
     </div>
   );
 }
 
-function Chip({ active, onClick, children }) {
+/* ───────── STEP 1 · 언제 ───────── */
+function WhenStep({ clock, day, setDay, t, setT, onNow, onNext }) {
+  const hh = String(clock.getHours()).padStart(2, "0");
+  const mm = String(clock.getMinutes()).padStart(2, "0");
+  const now = nowDefaults();
+  return (
+    <div className="flex min-h-dvh flex-col px-6 pt-14 pb-8 sm:px-8">
+      <p className="serif text-sm italic text-pine">DJGongsil</p>
+      <h1 className="serif mt-3 text-[2.5rem] leading-[1.1] font-medium text-ink">
+        언제 빈 강의실이
+        <br />
+        필요하세요?
+      </h1>
+
+      {/* 지금 = 직행 */}
+      <button
+        onClick={onNow}
+        className="press mt-8 flex items-center justify-between rounded-2xl border border-pine bg-pine px-6 py-5 text-left text-paper shadow-[0_6px_24px_rgba(31,111,77,0.28)]"
+      >
+        <div>
+          <div className="text-sm font-medium text-paper/75">지금 바로</div>
+          <div className="mt-0.5 text-xl font-bold">
+            {DAY_LABEL[now.day]} <span className="tnum">{hh}:{mm}</span>
+          </div>
+        </div>
+        <span className="serif tnum text-3xl">→</span>
+      </button>
+
+      <div className="mt-9 flex items-center gap-3">
+        <div className="h-px flex-1 bg-line" />
+        <span className="text-xs text-muted">다른 시간 고르기</span>
+        <div className="h-px flex-1 bg-line" />
+      </div>
+
+      {/* 요일 */}
+      <div className="mt-5 flex items-center gap-1.5">
+        {DAYS.map((d) => (
+          <button
+            key={d}
+            onClick={() => setDay(d)}
+            className={`press h-11 flex-1 rounded-xl text-base font-semibold transition ${
+              day === d
+                ? "bg-pine text-paper shadow-[0_2px_8px_rgba(31,111,77,0.4)]"
+                : "border border-line bg-raised text-muted"
+            }`}
+          >
+            {d}
+          </button>
+        ))}
+      </div>
+
+      {/* 교시 */}
+      <p className="mt-6 mb-2 text-xs text-muted">교시</p>
+      <div className="no-bar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {PERIODS.map((p) => {
+          const active = t === p.m;
+          return (
+            <button
+              key={p.n}
+              onClick={() => setT(p.m)}
+              className={`press flex shrink-0 flex-col items-center rounded-xl border px-3 py-2 transition ${
+                active ? "border-pine bg-pine text-paper" : "border-line bg-raised text-ink"
+              }`}
+            >
+              <span className="text-sm font-semibold">{p.n}교시</span>
+              <span className={`tnum text-[11px] ${active ? "text-paper/80" : "text-muted"}`}>
+                {fmt(p.m)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex-1" />
+      <button
+        onClick={onNext}
+        className="press mt-8 w-full rounded-2xl bg-ink py-4 text-base font-bold text-paper"
+      >
+        {DAY_LABEL[day]} <span className="tnum">{fmt(t)}</span> · 건물 고르기 →
+      </button>
+    </div>
+  );
+}
+
+/* ───────── STEP 2 · 어디 ───────── */
+function WhereStep({ day, t, buildings, freeByBldg, totalFree, onBack, onPick }) {
+  const [q, setQ] = useState("");
+  const last = typeof localStorage !== "undefined" ? localStorage.getItem(LAST_BLDG_KEY) : null;
+  const list = useMemo(() => {
+    let arr = buildings.filter((b) => (freeByBldg.get(b.code) || 0) >= 0);
+    if (q) arr = arr.filter((b) => b.name.includes(q));
+    // 최근 건물 맨 위
+    arr = [...arr].sort((a, b) => {
+      if (a.code === last) return -1;
+      if (b.code === last) return 1;
+      return (freeByBldg.get(b.code) || 0) > (freeByBldg.get(a.code) || 0) ? 1 : -1;
+    });
+    return arr;
+  }, [buildings, q, freeByBldg, last]);
+
+  return (
+    <div className="flex min-h-dvh flex-col px-5 pt-6 pb-8 sm:px-8">
+      <StepHeader onBack={onBack} crumb={`${DAY_LABEL[day]} ${fmt(t)}`} />
+      <h2 className="serif mt-4 text-3xl font-medium text-ink">어디서 찾을까요?</h2>
+
+      <div className="relative mt-5">
+        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted">⌕</span>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="건물 검색…"
+          className="w-full rounded-xl border border-line bg-raised py-3 pl-9 pr-4 text-sm text-ink outline-none focus:border-pine"
+        />
+      </div>
+
+      <div className="mt-4 flex-1 space-y-2 overflow-y-auto pb-2">
+        {!q && (
+          <BldgRow name="전체 캠퍼스" count={totalFree} primary onClick={() => onPick("전체")} />
+        )}
+        {list.map((b) => (
+          <BldgRow
+            key={b.code}
+            name={b.name}
+            count={freeByBldg.get(b.code) || 0}
+            star={b.code === last}
+            onClick={() => onPick(b.code)}
+          />
+        ))}
+        {list.length === 0 && (
+          <p className="serif mt-10 text-center italic text-muted">검색 결과가 없어요.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BldgRow({ name, count, primary, star, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition ${
-        active
-          ? "border-pine bg-pine text-paper shadow-[0_2px_8px_rgba(31,111,77,0.35)]"
-          : "border-line text-muted hover:border-line-2 hover:text-ink"
+      className={`press flex w-full items-center justify-between rounded-xl border px-4 py-3.5 text-left transition ${
+        primary ? "border-pine bg-pine-soft" : "border-line bg-raised hover:border-line-2"
       }`}
     >
-      {children}
+      <span className="flex items-center gap-1.5 font-semibold text-ink">
+        {star && <span className="text-pine">★</span>}
+        {name}
+      </span>
+      <span className="text-sm">
+        <span className="tnum font-bold text-pine">{count}</span>
+        <span className="text-muted"> 곳 빔</span>
+      </span>
     </button>
   );
 }
 
-function RoomCard({ room }) {
-  const st = room.st;
+/* ───────── STEP 3 · 강의실 ───────── */
+const SORTS = [
+  { k: "duration", label: "오래 빔순" },
+  { k: "building", label: "건물순" },
+  { k: "capacity", label: "큰 강의실" },
+];
+
+function RoomsStep({ day, t, bldg, buildings, scored, sort, setSort, onEditWhen, onEditWhere, onDetail }) {
+  const bldgName = bldg === "전체" ? "전체 캠퍼스" : buildings.find((b) => b.code === bldg)?.name;
+  const rooms = useMemo(() => {
+    let arr = scored.filter((r) => r.st.free && (bldg === "전체" || r.bldg === bldg));
+    arr = [...arr];
+    if (sort === "duration") arr.sort((a, b) => (b.fi?.mins || 0) - (a.fi?.mins || 0));
+    else if (sort === "capacity") arr.sort((a, b) => (b.capacity || 0) - (a.capacity || 0));
+    else
+      arr.sort((a, b) =>
+        a.bldgName === b.bldgName
+          ? a.ho.localeCompare(b.ho, "ko", { numeric: true })
+          : a.bldgName.localeCompare(b.bldgName, "ko")
+      );
+    return arr;
+  }, [scored, bldg, sort]);
+
   return (
-    <div className="rounded-xl border border-line bg-raised p-4 transition hover:border-line-2 hover:shadow-[0_2px_16px_rgba(27,26,21,0.05)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="tnum text-lg font-semibold leading-none text-ink">{room.ho}</div>
-          <div className="mt-1.5 truncate text-xs text-muted">{room.roomType || "강의실"}</div>
-        </div>
-        {room.capacity ? (
-          <div className="tnum shrink-0 text-xs text-muted">{room.capacity}석</div>
-        ) : null}
+    <div className="px-5 pb-24 pt-6 sm:px-8">
+      <StepHeader onBack={onEditWhere} crumb={null} />
+
+      {/* 조건칩 — 탭하면 해당 스텝 재편집 */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Crumb onClick={onEditWhen}>
+          {DAY_LABEL[day]} <span className="tnum">{fmt(t)}</span>
+        </Crumb>
+        <Crumb onClick={onEditWhere}>{bldgName}</Crumb>
       </div>
 
-      <div className="mt-3.5 border-t border-line pt-3">
-        {st.free ? (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-pine" />
-            <span className="font-medium text-pine">
-              {st.until ? (
-                <>
-                  <span className="tnum">{fmt(st.until)}</span>까지 비어요
-                </>
-              ) : st.todayCount === 0 ? (
-                "오늘 수업 없어요"
-              ) : (
-                "일과 끝까지 비어요"
-              )}
-            </span>
-          </div>
-        ) : (
-          <div className="text-sm">
-            <span className="font-medium text-clay">사용 중</span>
-            <span className="tnum text-muted"> · {fmt(st.until)}부터 빔</span>
-            <div className="mt-1 truncate text-xs text-muted">
-              {st.current.course} · {st.current.prof}
-            </div>
-          </div>
-        )}
+      <h2 className="serif mt-4 text-3xl font-medium text-ink">
+        빈 강의실 <span className="text-pine">{rooms.length}곳</span>
+      </h2>
+
+      {/* 정렬 */}
+      <div className="mt-4 flex rounded-full border border-line bg-raised p-0.5">
+        {SORTS.map((s) => (
+          <button
+            key={s.k}
+            onClick={() => setSort(s.k)}
+            className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
+              sort === s.k ? "bg-ink text-paper" : "text-muted"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
+
+      {rooms.length === 0 ? (
+        <p className="serif mt-16 text-center text-lg italic text-muted">
+          이 시간엔 빈 강의실이 없어요.
+        </p>
+      ) : (
+        <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {rooms.map((r, i) => (
+            <RoomCard
+              key={r.code}
+              room={r}
+              showBldg={bldg === "전체"}
+              onClick={() => onDetail(r)}
+              style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Crumb({ children, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="press inline-flex items-center gap-1 rounded-full border border-line bg-raised px-3 py-1 text-xs font-medium text-ink"
+    >
+      {children}
+      <span className="text-muted">✎</span>
+    </button>
+  );
+}
+
+function RoomCard({ room, showBldg, onClick, style }) {
+  const fi = room.fi;
+  const toneText =
+    fi.tone === "soon" ? "text-clay" : "text-pine";
+  const toneDot = fi.tone === "soon" ? "bg-clay" : "bg-pine";
+  const label =
+    fi.mins >= 100000
+      ? "종일 비어요"
+      : fi.tone === "soon"
+      ? `~${fmt(fi.until)} 곧 수업`
+      : `${fmt(fi.until)}까지 비어요`;
+  const durTag =
+    fi.mins >= 100000 ? "종일" : fi.mins >= 60 ? `${Math.floor(fi.mins / 60)}시간+` : `${fi.mins}분`;
+  return (
+    <button
+      onClick={onClick}
+      style={style}
+      className="press rise flex flex-col rounded-xl border border-line bg-raised p-4 text-left transition hover:border-line-2 hover:shadow-[0_2px_16px_rgba(27,26,21,0.05)]"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="tnum text-lg font-semibold leading-none text-ink">{room.ho}</div>
+          <div className="mt-1.5 truncate text-xs text-muted">
+            {showBldg ? `${room.bldgName} · ` : ""}
+            {room.roomType || "강의실"}
+          </div>
+        </div>
+        {room.capacity ? <div className="tnum shrink-0 text-xs text-muted">{room.capacity}석</div> : null}
+      </div>
+      <div className="mt-3.5 flex items-center justify-between border-t border-line pt-3">
+        <div className={`flex items-center gap-2 text-sm font-medium ${toneText}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${toneDot}`} />
+          {label}
+        </div>
+        <span
+          className={`tnum rounded-md px-1.5 py-0.5 text-[11px] ${
+            fi.tone === "soon" ? "bg-clay/10 text-clay" : "bg-pine-soft text-pine"
+          }`}
+        >
+          {durTag}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/* ───────── 상세 바텀시트 ───────── */
+function DetailSheet({ room, day, t, onClose }) {
+  const st = statusFor(room, day, t);
+  const todays = room.sessions
+    .filter((s) => s.day === day)
+    .map((s) => ({ ...s, _s: toMin(s.start) }))
+    .sort((a, b) => a._s - b._s);
+  const usage = room.usageWeekday?.[day];
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      <div className="backdrop-in absolute inset-0 bg-ink/30" onClick={onClose} />
+      <div className="sheet-up relative max-h-[80vh] overflow-y-auto rounded-t-3xl bg-paper px-6 pb-10 pt-3">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line-2" />
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="tnum text-2xl font-bold text-ink">{room.ho}</h3>
+            <p className="mt-1 text-sm text-muted">
+              {room.bldgName} · {room.roomType || "강의실"}
+              {room.capacity ? ` · ${room.capacity}석` : ""}
+            </p>
+          </div>
+          <button onClick={onClose} className="press p-1 text-2xl leading-none text-muted">×</button>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-pine/30 bg-pine-soft px-4 py-3">
+          <span className="text-sm font-semibold text-pine">
+            {st.free
+              ? st.until
+                ? `지금부터 ${fmt(st.until)}까지 비어요`
+                : "오늘 남은 시간 내내 비어요"
+              : `${fmt(st.until)}부터 비어요 (지금 ${st.current.course})`}
+          </span>
+        </div>
+
+        <div className="mt-5 flex items-baseline justify-between">
+          <p className="text-sm font-semibold text-ink">{DAY_LABEL[day]} 시간표</p>
+          {usage != null && <p className="tnum text-xs text-muted">사용률 {usage}%</p>}
+        </div>
+        <div className="mt-2 space-y-1.5">
+          {todays.length === 0 ? (
+            <p className="serif py-4 text-center italic text-muted">오늘 수업이 없어요 · 종일 비어요</p>
+          ) : (
+            todays.map((s, i) => {
+              const on = toMin(s.start) <= t && t < toMin(s.end);
+              return (
+                <div
+                  key={i}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
+                    on ? "bg-clay/10" : "bg-raised"
+                  }`}
+                >
+                  <span className="tnum w-24 shrink-0 text-xs text-muted">
+                    {s.start}~{s.end}
+                  </span>
+                  <span className="truncate text-sm text-ink">
+                    {s.course} <span className="text-muted">· {s.prof}</span>
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepHeader({ onBack, crumb }) {
+  return (
+    <div className="flex items-center gap-3">
+      <button onClick={onBack} className="press -ml-1 p-1 text-xl text-ink">←</button>
+      {crumb && <span className="text-sm text-muted">{crumb}</span>}
     </div>
   );
 }

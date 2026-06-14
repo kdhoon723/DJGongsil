@@ -93,3 +93,67 @@ input[type="range"].scrub::-moz-range-thumb {
   background: var(--color-line-2);
   border-radius: 99px;
 }
+
+/* 스크롤바 숨김 (가로 칩) */
+.no-bar::-webkit-scrollbar {
+  display: none;
+}
+.no-bar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ── 스텝 위저드 슬라이드 전환 (View Transitions API) ── */
+::view-transition-old(step),
+::view-transition-new(step) {
+  animation-duration: 0.3s;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+html[data-nav="forward"]::view-transition-old(step) {
+  animation-name: slideOutLeft;
+}
+html[data-nav="forward"]::view-transition-new(step) {
+  animation-name: slideInRight;
+}
+html[data-nav="backward"]::view-transition-old(step) {
+  animation-name: slideOutRight;
+}
+html[data-nav="backward"]::view-transition-new(step) {
+  animation-name: slideInLeft;
+}
+@keyframes slideOutLeft {
+  to { opacity: 0; transform: translateX(-44px); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(44px); }
+}
+@keyframes slideOutRight {
+  to { opacity: 0; transform: translateX(44px); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-44px); }
+}
+
+/* ── 바텀시트 ── */
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sheet-up {
+  animation: sheetUp 0.34s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.backdrop-in {
+  animation: backdropIn 0.22s ease-out both;
+}
+
+/* 누름 피드백 */
+.press {
+  transition: transform 0.1s ease;
+}
+.press:active {
+  transform: scale(0.98);
+}
