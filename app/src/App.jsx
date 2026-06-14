@@ -140,7 +140,7 @@ export default function App() {
               setDay(n.day);
               setT(n.t);
             }}
-            className="rounded-full border border-ink bg-ink px-3.5 py-1.5 text-sm font-semibold text-paper transition active:scale-95"
+            className="rounded-full border border-pine bg-pine/10 px-3.5 py-1.5 text-sm font-semibold text-pine transition hover:bg-pine/20 active:scale-95"
           >
             지금
           </button>

@@ -12,6 +12,8 @@ RE_DT = re.compile(r"^([월화수목금토일])\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,
 RE_PROF = re.compile(r"^(.+?)\s*교수$")
 RE_TAG = re.compile(r"^\[[^\]]*\](.*)$")
 RE_ENROLL = re.compile(r"수강인원:\s*(\d+)")
+RE_TIME_LABEL = re.compile(r"^\d{1,2}:\d{2}$")  # 그리드 시각 (12:00)
+RE_GYOSI = re.compile(r"^\d{1,2}교시$")  # 그리드 교시 (7교시)
 RE_CAP = re.compile(r"수용인원:\s*(\d+)\s*명")
 RE_SUMMARY = re.compile(
     r"월~금\s*주간사용률:\s*([\d.]+)%\s*/\s*월~금\s*주야간사용률:\s*([\d.]+)%"
@@ -34,16 +36,25 @@ def parse_sessions(raw):
             mp = RE_PROF.match(lines[i - 1])
             if mp:
                 prof = mp.group(1).strip()
+        # 과목명: 코드 앞에서 역방향 수집. [태그]를 만나면 내용 포함하고 멈춤.
+        # Crownix가 "[학"+"]..." 로 태그를 줄바꿈 분할하는 경우가 있어,
+        # 그리드(시간/교시)·수강인원·교수·시간·코드 줄을 만나면 경계로 보고 멈춘다.
         parts, j = [], i - 2
         while j >= 0:
-            mt = RE_TAG.match(lines[j])
+            L = lines[j]
+            mt = RE_TAG.match(L)
             if mt:
                 if mt.group(1).strip():
                     parts.insert(0, mt.group(1).strip())
                 break
-            parts.insert(0, lines[j])
+            if (RE_TIME_LABEL.match(L) or RE_GYOSI.match(L) or L.startswith("수강인원")
+                    or L.endswith("교수") or RE_DT.match(L) or RE_CODE.match(L)):
+                break
+            parts.insert(0, L)
             j -= 1
-        course = "".join(parts).strip()
+        course = "".join(parts)
+        course = re.sub(r"^\s*\[[^\]]*\]", "", course)  # [학]/[대] 태그 제거
+        course = re.sub(r"^\s*[\[\]]+", "", course).strip()  # 분할 태그 잔재(괄호)
         enroll = None
         if i + 2 < len(lines):
             me = RE_ENROLL.search(lines[i + 2])
