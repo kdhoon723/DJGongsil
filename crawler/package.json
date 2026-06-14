@@ -1,0 +1,13 @@
+{
+  "name": "djgongsil-crawler",
+  "private": true,
+  "version": "0.1.0",
+  "description": "대진대 포털 강의실별 시간표 수집기 (Playwright)",
+  "scripts": {
+    "crawl": "node crawl_rooms.cjs",
+    "parse": "python3 parse_rooms.py"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}
