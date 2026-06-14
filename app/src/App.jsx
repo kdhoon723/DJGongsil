@@ -85,6 +85,7 @@ export default function App() {
   const [t, setT] = useState(init.t);
   const [bldg, setBldg] = useState("전체");
   const [sort, setSort] = useState("duration");
+  const [showBusy, setShowBusy] = useState(false);
   const [detail, setDetail] = useState(null);
   const clock = useClock();
 
@@ -167,13 +168,16 @@ export default function App() {
         {step === "rooms" && (
           <RoomsStep
             day={day}
+            setDay={setDay}
             t={t}
+            setT={setT}
             bldg={bldg}
             buildings={buildings}
             scored={scored}
             sort={sort}
             setSort={setSort}
-            onEditWhen={() => go("when", "backward")}
+            showBusy={showBusy}
+            setShowBusy={setShowBusy}
             onEditWhere={() => go("where", "backward")}
             onDetail={setDetail}
           />
@@ -343,55 +347,103 @@ function BldgRow({ name, count, primary, star, onClick }) {
 /* ───────── STEP 3 · 강의실 ───────── */
 const SORTS = [
   { k: "duration", label: "오래 빔순" },
-  { k: "building", label: "건물순" },
-  { k: "capacity", label: "큰 강의실" },
+  { k: "capacity", label: "넓은 순" },
+  { k: "ho", label: "호수순" },
 ];
 
-function RoomsStep({ day, t, bldg, buildings, scored, sort, setSort, onEditWhen, onEditWhere, onDetail }) {
+function RoomsStep({ day, setDay, t, setT, bldg, buildings, scored, sort, setSort, showBusy, setShowBusy, onEditWhere, onDetail }) {
   const bldgName = bldg === "전체" ? "전체 캠퍼스" : buildings.find((b) => b.code === bldg)?.name;
+  const inScope = useMemo(
+    () => scored.filter((r) => bldg === "전체" || r.bldg === bldg),
+    [scored, bldg]
+  );
+  const freeCount = useMemo(() => inScope.filter((r) => r.st.free).length, [inScope]);
   const rooms = useMemo(() => {
-    let arr = scored.filter((r) => r.st.free && (bldg === "전체" || r.bldg === bldg));
+    let arr = showBusy ? [...inScope] : inScope.filter((r) => r.st.free);
     arr = [...arr];
-    if (sort === "duration") arr.sort((a, b) => (b.fi?.mins || 0) - (a.fi?.mins || 0));
-    else if (sort === "capacity") arr.sort((a, b) => (b.capacity || 0) - (a.capacity || 0));
-    else
-      arr.sort((a, b) =>
-        a.bldgName === b.bldgName
+    arr.sort((a, b) => {
+      if (a.st.free !== b.st.free) return a.st.free ? -1 : 1; // 빈 방 먼저
+      if (sort === "capacity") return (b.capacity || 0) - (a.capacity || 0);
+      if (sort === "ho")
+        return a.bldg === b.bldg
           ? a.ho.localeCompare(b.ho, "ko", { numeric: true })
-          : a.bldgName.localeCompare(b.bldgName, "ko")
-      );
+          : a.bldgName.localeCompare(b.bldgName, "ko");
+      if (a.st.free) return (b.fi?.mins || 0) - (a.fi?.mins || 0); // 오래 빔순
+      return (a.st.until || 0) - (b.st.until || 0);
+    });
     return arr;
-  }, [scored, bldg, sort]);
+  }, [inScope, sort, showBusy]);
 
   return (
     <div className="px-5 pb-24 pt-6 sm:px-8">
-      <StepHeader onBack={onEditWhere} crumb={null} />
-
-      {/* 조건칩 — 탭하면 해당 스텝 재편집 */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Crumb onClick={onEditWhen}>
-          {DAY_LABEL[day]} <span className="tnum">{fmt(t)}</span>
-        </Crumb>
-        <Crumb onClick={onEditWhere}>{bldgName}</Crumb>
+      <div className="flex items-center gap-3">
+        <button onClick={onEditWhere} className="press -ml-1 p-1 text-xl text-ink">←</button>
+        <button
+          onClick={onEditWhere}
+          className="press inline-flex items-center gap-1 rounded-full border border-line bg-raised px-3 py-1 text-xs font-medium text-ink"
+        >
+          {bldgName} <span className="text-muted">✎</span>
+        </button>
       </div>
 
       <h2 className="serif mt-4 text-3xl font-medium text-ink">
-        빈 강의실 <span className="text-pine">{rooms.length}곳</span>
+        빈 강의실 <span className="text-pine">{freeCount}곳</span>
       </h2>
 
-      {/* 정렬 */}
-      <div className="mt-4 flex rounded-full border border-line bg-raised p-0.5">
-        {SORTS.map((s) => (
-          <button
-            key={s.k}
-            onClick={() => setSort(s.k)}
-            className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
-              sort === s.k ? "bg-pine text-paper" : "text-muted"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+      {/* 요일 + 시간 스크러버 (결과 페이지에서 바로 조절) */}
+      <div className="mt-4 rounded-2xl border border-line bg-raised p-3">
+        <div className="flex items-center gap-1.5">
+          {DAYS.map((d) => (
+            <button
+              key={d}
+              onClick={() => setDay(d)}
+              className={`press h-8 flex-1 rounded-lg text-sm font-semibold transition ${
+                day === d ? "bg-pine text-paper" : "text-muted"
+              }`}
+            >
+              {d}
+            </button>
+          ))}
+          <span className="serif tnum ml-1 w-14 shrink-0 text-right text-lg text-pine">{fmt(t)}</span>
+        </div>
+        <div className="mt-2.5 flex items-center gap-2.5">
+          <span className="tnum text-[10px] text-muted">08:30</span>
+          <input
+            type="range"
+            className="scrub flex-1"
+            min={OPEN}
+            max={CLOSE}
+            step={10}
+            value={t}
+            onChange={(e) => setT(Number(e.target.value))}
+          />
+          <span className="tnum text-[10px] text-muted">22:40</span>
+        </div>
+      </div>
+
+      {/* 정렬 + 수업중 토글 */}
+      <div className="mt-3 flex items-center gap-2">
+        <div className="flex flex-1 rounded-full border border-line bg-raised p-0.5">
+          {SORTS.map((s) => (
+            <button
+              key={s.k}
+              onClick={() => setSort(s.k)}
+              className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
+                sort === s.k ? "bg-pine text-paper" : "text-muted"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowBusy((v) => !v)}
+          className={`press shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            showBusy ? "border-pine bg-pine-soft text-pine" : "border-line bg-raised text-muted"
+          }`}
+        >
+          수업중{showBusy ? " ✓" : ""}
+        </button>
       </div>
 
       {rooms.length === 0 ? (
@@ -428,27 +480,36 @@ function Crumb({ children, onClick }) {
 }
 
 function RoomCard({ room, showBldg, onClick, style }) {
-  const fi = room.fi;
-  const toneText =
-    fi.tone === "soon" ? "text-clay" : "text-pine";
-  const toneDot = fi.tone === "soon" ? "bg-clay" : "bg-pine";
-  const label =
-    fi.mins >= 100000
-      ? "종일 비어요"
-      : fi.tone === "soon"
-      ? `~${fmt(fi.until)} 곧 수업`
-      : `${fmt(fi.until)}까지 비어요`;
-  const durTag =
-    fi.mins >= 100000 ? "종일" : fi.mins >= 60 ? `${Math.floor(fi.mins / 60)}시간+` : `${fi.mins}분`;
+  const { st, fi } = room;
+  const free = st.free;
+  const soon = free && fi.tone === "soon";
+  const tagClass = !free
+    ? "bg-line text-muted"
+    : soon
+    ? "bg-clay/10 text-clay"
+    : "bg-pine-soft text-pine";
+  const tag = !free
+    ? "사용중"
+    : fi.mins >= 100000
+    ? "종일"
+    : fi.mins >= 60
+    ? `${Math.floor(fi.mins / 60)}시간+`
+    : `${fi.mins}분`;
   return (
     <button
       onClick={onClick}
       style={style}
-      className="press rise flex flex-col rounded-xl border border-line bg-raised p-4 text-left transition hover:border-line-2 hover:shadow-[0_2px_16px_rgba(27,26,21,0.05)]"
+      className={`press rise flex flex-col rounded-xl border p-4 text-left transition ${
+        free
+          ? "border-line bg-raised hover:border-line-2 hover:shadow-[0_2px_16px_rgba(27,26,21,0.05)]"
+          : "border-line bg-paper-2/40"
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="tnum text-lg font-semibold leading-none text-ink">{room.ho}</div>
+          <div className={`tnum text-lg font-semibold leading-none ${free ? "text-ink" : "text-muted"}`}>
+            {room.ho}
+          </div>
           <div className="mt-1.5 truncate text-xs text-muted">
             {showBldg ? `${room.bldgName} · ` : ""}
             {room.roomType || "강의실"}
@@ -457,17 +518,23 @@ function RoomCard({ room, showBldg, onClick, style }) {
         {room.capacity ? <div className="tnum shrink-0 text-xs text-muted">{room.capacity}석</div> : null}
       </div>
       <div className="mt-3.5 flex items-center justify-between border-t border-line pt-3">
-        <div className={`flex items-center gap-2 text-sm font-medium ${toneText}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${toneDot}`} />
-          {label}
-        </div>
-        <span
-          className={`tnum rounded-md px-1.5 py-0.5 text-[11px] ${
-            fi.tone === "soon" ? "bg-clay/10 text-clay" : "bg-pine-soft text-pine"
-          }`}
-        >
-          {durTag}
-        </span>
+        {free ? (
+          <div className={`flex items-center gap-2 text-sm font-medium ${soon ? "text-clay" : "text-pine"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${soon ? "bg-clay" : "bg-pine"}`} />
+            {fi.mins >= 100000
+              ? "종일 비어요"
+              : soon
+              ? `~${fmt(fi.until)} 곧 수업`
+              : `${fmt(fi.until)}까지 비어요`}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-line-2" />
+            <span className="font-medium text-clay">사용 중</span>
+            <span className="tnum text-muted">{fmt(st.until)}부터 빔</span>
+          </div>
+        )}
+        <span className={`tnum rounded-md px-1.5 py-0.5 text-[11px] ${tagClass}`}>{tag}</span>
       </div>
     </button>
   );
