@@ -140,7 +140,7 @@ export default function App() {
               setDay(n.day);
               setT(n.t);
             }}
-            className="rounded-full bg-pine px-3.5 py-1.5 text-sm font-semibold text-paper transition active:scale-95"
+            className="rounded-full border border-ink bg-ink px-3.5 py-1.5 text-sm font-semibold text-paper transition active:scale-95"
           >
             지금
           </button>
@@ -149,8 +149,10 @@ export default function App() {
               <button
                 key={d}
                 onClick={() => setDay(d)}
-                className={`h-8 w-9 rounded-full text-sm font-medium transition ${
-                  day === d ? "bg-ink text-paper" : "text-muted hover:text-ink"
+                className={`h-8 w-9 rounded-full text-sm font-semibold transition ${
+                  day === d
+                    ? "bg-pine text-paper shadow-[0_2px_8px_rgba(31,111,77,0.45)]"
+                    : "text-muted hover:text-ink"
                 }`}
               >
                 {d}
@@ -235,7 +237,7 @@ function Chip({ active, onClick, children }) {
       onClick={onClick}
       className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition ${
         active
-          ? "border-ink bg-ink text-paper"
+          ? "border-pine bg-pine text-paper shadow-[0_2px_8px_rgba(31,111,77,0.35)]"
           : "border-line text-muted hover:border-line-2 hover:text-ink"
       }`}
     >
