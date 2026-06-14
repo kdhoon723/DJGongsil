@@ -6,11 +6,15 @@ const DAY_LABEL = { 월: "월요일", 화: "화요일", 수: "수요일", 목: "
 const OPEN = 8 * 60 + 30;
 const CLOSE = 22 * 60 + 40;
 
-// 교시 (1교시 09:00 부터 30분 간격)
-const PERIODS = Array.from({ length: 26 }, (_, i) => {
-  const m = 9 * 60 + i * 30;
-  return { n: i + 1, m };
-});
+// 실제 수업 시간대 (2시간 블록 단위)
+const PERIODS = [
+  { t: 9 * 60 + 30, label: "1교시" },
+  { t: 11 * 60 + 30, label: "2교시" },
+  { t: 13 * 60 + 30, label: "3교시" },
+  { t: 15 * 60 + 30, label: "4교시" },
+  { t: 17 * 60 + 30, label: "5교시" },
+  { t: 19 * 60, label: "야간" },
+];
 
 const toMin = (s) => {
   const [h, m] = s.split(":").map(Number);
@@ -239,22 +243,22 @@ function WhenStep({ clock, day, setDay, t, setT, onNow, onNext }) {
         ))}
       </div>
 
-      {/* 교시 */}
-      <p className="mt-6 mb-2 text-xs text-muted">교시</p>
+      {/* 수업 시간대 */}
+      <p className="mt-6 mb-2 text-xs text-muted">수업 시간대</p>
       <div className="no-bar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {PERIODS.map((p) => {
-          const active = t === p.m;
+          const active = t === p.t;
           return (
             <button
-              key={p.n}
-              onClick={() => setT(p.m)}
-              className={`press flex shrink-0 flex-col items-center rounded-xl border px-3 py-2 transition ${
+              key={p.label}
+              onClick={() => setT(p.t)}
+              className={`press flex shrink-0 flex-col items-center rounded-xl border px-4 py-2 transition ${
                 active ? "border-pine bg-pine text-paper" : "border-line bg-raised text-ink"
               }`}
             >
-              <span className="text-sm font-semibold">{p.n}교시</span>
-              <span className={`tnum text-[11px] ${active ? "text-paper/80" : "text-muted"}`}>
-                {fmt(p.m)}
+              <span className="tnum text-sm font-semibold">{fmt(p.t)}</span>
+              <span className={`text-[11px] ${active ? "text-paper/80" : "text-muted"}`}>
+                {p.label}
               </span>
             </button>
           );
