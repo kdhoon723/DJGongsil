@@ -58,15 +58,35 @@ function freeInfo(st, t) {
   return { mins, until: st.until, tone };
 }
 
+const DATA_FILES = ["data.json", "data.sample.json"];
+
 function useData() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
+
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}data.json`)
-      .then((r) => r.json())
-      .then(setData)
-      .catch((e) => setErr(String(e)));
+    let alive = true;
+
+    async function load() {
+      let lastError = null;
+      for (const file of DATA_FILES) {
+        try {
+          const res = await fetch(`${import.meta.env.BASE_URL}${file}`);
+          if (!res.ok) throw new Error(`${file}: ${res.status}`);
+          const json = await res.json();
+          if (alive) setData(json);
+          return;
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      if (alive) setErr(String(lastError || new Error("data unavailable")));
+    }
+
+    load();
+    return () => { alive = false; };
   }, []);
+
   return { data, err };
 }
 

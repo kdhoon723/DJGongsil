@@ -5,6 +5,11 @@ node_modules/
 app/dist/
 dist/
 
+# 실제 수집 데이터(공개 저장소에는 익명 샘플만 포함)
+app/public/data.json
+!app/public/data.sample.json
+data/extracted/
+
 # 환경변수 / 시크릿 (자격증명은 절대 커밋 금지)
 .env
 .env.*

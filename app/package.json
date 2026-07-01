@@ -17,5 +17,12 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.0",
     "vite": "^6.0.7"
-  }
+  },
+  "description": "대진대학교 빈 강의실을 요일·시간대별로 찾아주는 React 정적 웹앱",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdhoon723/DJGongsil.git"
+  },
+  "homepage": "https://github.com/kdhoon723/DJGongsil#readme"
 }

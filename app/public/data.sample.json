@@ -1,0 +1,62 @@
+{
+  "year": "sample",
+  "sample": true,
+  "rooms": [
+    {
+      "bldg": "S1",
+      "bldgName": "샘플관",
+      "code": "S101",
+      "ho": "샘101",
+      "roomType": "강의실",
+      "capacity": 40,
+      "usageWeekday": { "월": 35.3, "화": 23.5, "수": 35.3, "목": 23.5, "금": 11.8 },
+      "usageDayNight": { "월": 20.7, "화": 13.8, "수": 20.7, "목": 13.8, "금": 6.9 },
+      "usageSummary": { "weekday": 25.9, "dayNight": 15.2 },
+      "sessions": [
+        { "course": "샘플 교양", "prof": "", "curiNo": "000001", "clssNo": "01", "day": "월", "start": "09:30", "end": "11:30", "enroll": 30 },
+        { "course": "샘플 실습", "prof": "", "curiNo": "000002", "clssNo": "01", "day": "수", "start": "13:30", "end": "15:30", "enroll": 24 }
+      ]
+    },
+    {
+      "bldg": "S1",
+      "bldgName": "샘플관",
+      "code": "S102",
+      "ho": "샘102",
+      "roomType": "세미나실",
+      "capacity": 24,
+      "usageWeekday": { "월": 11.8, "화": 11.8, "수": 11.8, "목": 11.8, "금": 0 },
+      "usageDayNight": { "월": 6.9, "화": 6.9, "수": 6.9, "목": 6.9, "금": 0 },
+      "usageSummary": { "weekday": 9.4, "dayNight": 5.5 },
+      "sessions": [
+        { "course": "샘플 발표", "prof": "", "curiNo": "000003", "clssNo": "01", "day": "화", "start": "11:30", "end": "13:30", "enroll": 18 }
+      ]
+    },
+    {
+      "bldg": "S2",
+      "bldgName": "예시관",
+      "code": "S201",
+      "ho": "예201",
+      "roomType": "컴퓨터실습실",
+      "capacity": 35,
+      "usageWeekday": { "월": 47.1, "화": 47.1, "수": 35.3, "목": 35.3, "금": 23.5 },
+      "usageDayNight": { "월": 27.6, "화": 27.6, "수": 20.7, "목": 20.7, "금": 13.8 },
+      "usageSummary": { "weekday": 37.7, "dayNight": 22.1 },
+      "sessions": [
+        { "course": "샘플 프로그래밍", "prof": "", "curiNo": "000004", "clssNo": "01", "day": "월", "start": "13:30", "end": "15:30", "enroll": 32 },
+        { "course": "샘플 데이터", "prof": "", "curiNo": "000005", "clssNo": "01", "day": "목", "start": "15:30", "end": "17:30", "enroll": 28 }
+      ]
+    },
+    {
+      "bldg": "S2",
+      "bldgName": "예시관",
+      "code": "S202",
+      "ho": "예202",
+      "roomType": "강의실",
+      "capacity": 60,
+      "usageWeekday": { "월": 0, "화": 0, "수": 0, "목": 0, "금": 0 },
+      "usageDayNight": { "월": 0, "화": 0, "수": 0, "목": 0, "금": 0 },
+      "usageSummary": { "weekday": 0, "dayNight": 0 },
+      "sessions": []
+    }
+  ]
+}
