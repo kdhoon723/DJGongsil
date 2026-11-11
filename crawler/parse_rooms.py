@@ -6,8 +6,11 @@ import json, re, glob, os
 EXTRACTED = os.path.join(os.path.dirname(__file__), "..", "data", "extracted")
 DAYS = ["월", "화", "수", "목", "금"]
 
-RE_CODE = re.compile(r"^\((\d{5,6})-(\d{2})\)$")
-RE_DT = re.compile(r"^([월화수목금토일])\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,2}):(\d{2})$")
+# 과목번호는 단독 줄이나 교수명 줄 끝에 온다: "(525090-01)", "이정 교수(200230)", "(MS1155)".
+# 학부·대학원 합반은 앞 과목번호 뒤에 " /"가 붙고 시간 줄도 "화13:30~15:00 / 화"가 된다.
+RE_CODE = re.compile(r"\(([0-9A-Z]{5,8})(?:-(\d{2}))?\)\s*/?$")
+RE_MERGED = re.compile(r"\([0-9A-Z]{5,8}(?:-\d{2})?\)\s*/")
+RE_DT = re.compile(r"^([월화수목금토일])\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,2}):(\d{2})(?:\s*/.*)?$")
 RE_PROF = re.compile(r"^(.+?)\s*교수$")
 RE_TAG = re.compile(r"^\[[^\]]*\](.*)$")
 RE_ENROLL = re.compile(r"수강인원:\s*(\d+)")
@@ -22,23 +25,22 @@ RE_SUMMARY = re.compile(
 def parse_sessions(raw):
     lines = [l.strip() for l in (raw or "").split("\n")]
     out = []
-    for i, line in enumerate(lines):
-        mc = RE_CODE.match(line)
-        if not mc or i + 1 >= len(lines):
-            continue
-        mdt = RE_DT.match(lines[i + 1])
-        if not mdt:
+    for i in range(1, len(lines)):
+        mdt = RE_DT.match(lines[i])
+        mc = RE_CODE.search(lines[i - 1])
+        if not mdt or not mc:
             continue
         day, sh, sm, eh, em = mdt.groups()
-        prof = ""
-        if i >= 1:
-            mp = RE_PROF.match(lines[i - 1])
-            if mp:
-                prof = mp.group(1).strip()
-        # 과목명: 코드 앞에서 역방향 수집. [태그]를 만나면 내용 포함하고 멈춤.
+        head, j = lines[i - 1][: mc.start()].strip(), i - 2
+        # 교수명은 코드 줄 앞이나 윗줄에 오고, "타카쿠사키미나 교" + "수(…)"처럼 잘리기도 한다
+        if not head.endswith("교수") and j >= 0 and RE_PROF.match(lines[j] + head):
+            head, j = lines[j] + head, j - 1
+        mp = RE_PROF.match(head)
+        prof = mp.group(1).strip() if mp else ""
+        # 과목명: 역방향 수집. [태그]를 만나면 내용 포함하고 멈춤.
         # Crownix가 "[학"+"]..." 로 태그를 줄바꿈 분할하는 경우가 있어,
         # 그리드(시간/교시)·수강인원·교수·시간·코드 줄을 만나면 경계로 보고 멈춘다.
-        parts, j = [], i - 2
+        parts = []
         while j >= 0:
             L = lines[j]
             mt = RE_TAG.match(L)
@@ -46,22 +48,26 @@ def parse_sessions(raw):
                 if mt.group(1).strip():
                     parts.insert(0, mt.group(1).strip())
                 break
+            if RE_MERGED.search(L):
+                j -= 1
+                continue
             if (RE_TIME_LABEL.match(L) or RE_GYOSI.match(L) or L.startswith("수강인원")
-                    or L.endswith("교수") or RE_DT.match(L) or RE_CODE.match(L)):
+                    or L.endswith("교수") or RE_DT.match(L) or RE_CODE.search(L)):
                 break
             parts.insert(0, L)
             j -= 1
         course = "".join(parts)
-        course = re.sub(r"^\s*\[[^\]]*\]", "", course)  # [학]/[대] 태그 제거
+        course = re.sub(r"\[[^\]]*\]", "", course)  # [학]/[원] 태그 제거
         course = re.sub(r"^\s*[\[\]]+", "", course).strip()  # 분할 태그 잔재(괄호)
         enroll = None
-        if i + 2 < len(lines):
-            me = RE_ENROLL.search(lines[i + 2])
+        for L in lines[i + 1:i + 3]:
+            me = RE_ENROLL.search(L)
             if me:
                 enroll = int(me.group(1))
+                break
         out.append({
             "course": course, "prof": prof,
-            "curiNo": mc.group(1), "clssNo": mc.group(2),
+            "curiNo": mc.group(1), "clssNo": mc.group(2) or "",
             "day": day, "start": f"{int(sh):02d}:{sm}", "end": f"{int(eh):02d}:{em}",
             "enroll": enroll,
         })
@@ -74,7 +80,7 @@ def parse_sessions(raw):
     return uniq
 
 
-def parse_meta(raw):
+def parse_meta(raw, sessions):
     lines = [l.strip() for l in (raw or "").split("\n")]
     cap = None
     mc = RE_CAP.search(raw or "")
@@ -91,6 +97,12 @@ def parse_meta(raw):
                 return vals
         return []
 
+    # 리포트는 수업이 하나라도 있는 요일의 사용률만 순서대로 찍는다
+    used = [d for d in DAYS if any(s["day"] == d for s in sessions)]
+
+    def by_day(vals):
+        return dict(zip(used, vals)) if len(vals) == len(used) else {}
+
     day = grab_after("주간", "사용률")
     night = grab_after("주야간", "사용률")
     summary = None
@@ -99,8 +111,8 @@ def parse_meta(raw):
         summary = {"weekday": float(ms.group(1)), "dayNight": float(ms.group(2))}
     return {
         "capacity": cap,
-        "usageWeekday": dict(zip(DAYS, day)) if day else {},
-        "usageDayNight": dict(zip(DAYS, night)) if night else {},
+        "usageWeekday": by_day(day),
+        "usageDayNight": by_day(night),
         "usageSummary": summary,
     }
 
@@ -150,7 +162,7 @@ def main():
             raw = r.get("raw", "")
             ho, roomType = parse_room_name(r.get("name") or r.get("ho", ""))
             sess = parse_sessions(raw)
-            meta = parse_meta(raw)
+            meta = parse_meta(raw, sess)
             if not (is_lecture(roomType) or sess):
                 continue  # 연구실/사무실 등 제외
             app_rooms.append({

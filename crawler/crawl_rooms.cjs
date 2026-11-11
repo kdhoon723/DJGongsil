@@ -116,7 +116,7 @@ function parseRoomName(name) {
 function parseSchedule(text) {
   // 예) "[학]한국전쟁사 최한진 교수 (922504-01) 화09:30~11:30 수강인원: 50명"
   const re =
-    /([^()\n]*?)\((\d{5,6})-(\d{2})\)\s*([월화수목금토일])\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,2}):(\d{2})\s*(?:수강인원:\s*(\d+)\s*명)?/g;
+    /([^()\n]*?)\((\d{5,6})(?:-(\d{2}))?\)\s*([월화수목금토일])\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,2}):(\d{2})\s*(?:수강인원:\s*(\d+)\s*명)?/g;
   const out = [];
   let m;
   while ((m = re.exec(text))) {
@@ -131,7 +131,7 @@ function parseSchedule(text) {
       course: lab,
       prof,
       curiNo: m[2],
-      clssNo: m[3],
+      clssNo: m[3] || "",
       day: m[4],
       start: `${m[5].padStart(2, "0")}:${m[6]}`,
       end: `${m[7].padStart(2, "0")}:${m[8]}`,
