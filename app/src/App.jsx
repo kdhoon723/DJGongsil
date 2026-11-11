@@ -227,8 +227,8 @@ export default function App() {
   const buildings = useMemo(() => {
     if (!data) return [];
     const m = new Map();
-    for (const r of data.rooms) m.set(r.bldg, r.bldgName);
-    return [...m.entries()].map(([code, name]) => ({ code, name }));
+    for (const r of data.rooms) m.set(r.bldg, { code: r.bldg, name: r.bldgName, alias: r.bldgAlias });
+    return [...m.values()];
   }, [data]);
   const bldg = buildings.some((b) => b.code === main.bldg) ? main.bldg : ALL;
 
@@ -671,7 +671,7 @@ function BuildingSheet({ buildings, bldg, freeByBldg, totalFree, whenLabel, onPi
   const list = useMemo(() => {
     const count = (b) => freeByBldg.get(b.code) || 0;
     return buildings
-      .filter((b) => !q || b.name.includes(q.trim()))
+      .filter((b) => !q || `${b.name} ${b.alias || ""}`.includes(q.trim()))
       .sort((a, b) => (b.code === last) - (a.code === last) || count(b) - count(a) || a.name.localeCompare(b.name, "ko"));
   }, [buildings, q, freeByBldg, last]);
 
@@ -702,6 +702,7 @@ function BuildingSheet({ buildings, bldg, freeByBldg, totalFree, whenLabel, onPi
           <li key={b.code}>
             <BldgRow
               name={b.name}
+              alias={b.alias}
               count={freeByBldg.get(b.code) || 0}
               recent={b.code === last}
               active={b.code === bldg}
@@ -715,7 +716,7 @@ function BuildingSheet({ buildings, bldg, freeByBldg, totalFree, whenLabel, onPi
   );
 }
 
-function BldgRow({ name, count, recent, active, onClick }) {
+function BldgRow({ name, alias, count, recent, active, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -726,6 +727,7 @@ function BldgRow({ name, count, recent, active, onClick }) {
     >
       <span className="flex items-center gap-2 font-semibold text-ink">
         {name}
+        {alias && <span className="text-xs font-normal text-muted">{alias}</span>}
         {recent && <span className="rounded bg-pine-soft px-1.5 py-0.5 text-[10px] font-semibold text-pine">최근</span>}
       </span>
       <span className="text-sm text-muted">

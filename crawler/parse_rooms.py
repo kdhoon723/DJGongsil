@@ -144,6 +144,19 @@ BLDG_EXCLUDE = re.compile(
 )
 
 
+# 포털은 이공학관 각 동을 A·B 두 건물로 나누지만 학생들은 한 건물로 공가·공나·공다라고 부른다
+ENG_HALLS = {
+    f"{wing}{n}": (f"A{n}", short, full)
+    for n, short, full in [("7", "공가", "이공학관 가동"), ("8", "공나", "이공학관 나동"), ("9", "공다", "이공학관 다동")]
+    for wing in "AB"
+}
+
+
+def building_of(b):
+    code, name, alias = ENG_HALLS.get(b["bldg"], (b["bldg"], b["bldgName"], None))
+    return {"bldg": code, "bldgName": name, **({"bldgAlias": alias} if alias else {})}
+
+
 def is_open_room(room_type):
     t = room_type or ""
     if re.search(r"연구실|사무실|도서실|회의실|상담실|준비실|사무|인권센터|행정", t):
@@ -163,6 +176,7 @@ def main():
     for b in bldgs:
         if BLDG_EXCLUDE.search(b.get("bldgName", "")):
             continue
+        where = building_of(b)
         for r in b["rooms"]:
             if r.get("online") or r["name"].startswith("이동수업"):
                 continue
@@ -176,7 +190,7 @@ def main():
             if not (is_open_room(roomType) or sess):
                 continue
             app_rooms.append({
-                "bldg": b["bldg"], "bldgName": b["bldgName"],
+                **where,
                 "code": r["code"], "ho": ho, "roomType": roomType, "floor": floor_of(ho),
                 "capacity": meta["capacity"],
                 "usageWeekday": meta["usageWeekday"],
@@ -185,8 +199,7 @@ def main():
                 "sessions": sess,
             })
             for s in sess:
-                flat.append({"bldg": b["bldg"], "bldgName": b["bldgName"],
-                             "ho": ho, "roomType": roomType,
+                flat.append({**where, "ho": ho, "roomType": roomType,
                              "code": r["code"], "capacity": meta["capacity"], **s})
     collected = [b.get("collectedAt") for b in bldgs]
     updated = max(collected) if all(collected) else date.fromtimestamp(max(map(os.path.getmtime, files))).isoformat()
