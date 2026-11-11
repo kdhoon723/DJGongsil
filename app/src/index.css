@@ -71,20 +71,6 @@ input[type="range"].scrub::-moz-range-thumb {
   cursor: pointer;
 }
 
-@keyframes riseIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.rise {
-  animation: riseIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
 *::-webkit-scrollbar {
   width: 9px;
   height: 9px;
@@ -101,37 +87,6 @@ input[type="range"].scrub::-moz-range-thumb {
 .no-bar {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-
-/* ── 스텝 위저드 슬라이드 전환 (View Transitions API) ── */
-::view-transition-old(step),
-::view-transition-new(step) {
-  animation-duration: 0.3s;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-html[data-nav="forward"]::view-transition-old(step) {
-  animation-name: slideOutLeft;
-}
-html[data-nav="forward"]::view-transition-new(step) {
-  animation-name: slideInRight;
-}
-html[data-nav="backward"]::view-transition-old(step) {
-  animation-name: slideOutRight;
-}
-html[data-nav="backward"]::view-transition-new(step) {
-  animation-name: slideInLeft;
-}
-@keyframes slideOutLeft {
-  to { opacity: 0; transform: translateX(-44px); }
-}
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(44px); }
-}
-@keyframes slideOutRight {
-  to { opacity: 0; transform: translateX(44px); }
-}
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-44px); }
 }
 
 /* ── 바텀시트 ── */
