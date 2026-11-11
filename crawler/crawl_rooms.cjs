@@ -220,7 +220,13 @@ const BLDG_SKIP =
     }
     const rooms = await getRooms(page, code);
     console.log(`[건물 ${code} ${bName}] 방 ${rooms.length}개`);
-    const bldgData = { bldg: code, bldgName: bName, year: SEMESTER, rooms: [] };
+    const bldgData = {
+      bldg: code,
+      bldgName: bName,
+      year: SEMESTER,
+      collectedAt: new Date().toISOString().slice(0, 10),
+      rooms: [],
+    };
     for (const room of rooms) {
       const { ho, roomType } = parseRoomName(room.name);
       const online = isOnline(room.name);

@@ -2,6 +2,7 @@
 # 추출: 세션(과목/교수/코드/요일/시간/수강인원) + 강의실 메타(수용인원, 요일별/종합 사용률)
 # raw 보존 덕에 재크롤 없이 파싱만 교정/확장 가능.
 import json, re, glob, os
+from datetime import date
 
 EXTRACTED = os.path.join(os.path.dirname(__file__), "..", "data", "extracted")
 DAYS = ["월", "화", "수", "목", "금"]
@@ -117,15 +118,24 @@ def parse_meta(raw, sessions):
     }
 
 
-# "인119-1 - 교양A/V강의실" -> ("인119-1","교양A/V강의실")  (호수 내부 대시 보존)
-RE_ROOMNAME = re.compile(r"^([가-힣A-Za-z]+\d+(?:-\d+)?)\s*-?\s*(.*)$")
+# "인119-1 - 교양A/V강의실", "공가A 101 - 실습실", "공다 A107 - 강의실", "정보 202 정보실습실B", "611 - e-강의실"
+RE_ROOMNAME = re.compile(r"^((?:[가-힣]+\s?[A-Z]?\s?)?[A-Z]?\d{3,4}(?:-\d+)?)\s*(?:-\s*)?(.*)$")
+RE_BASEMENT = re.compile(r"B0\d\d")  # 예B006 = 지하. 공가B 101의 B는 동 이름
+RE_ROOMNO = re.compile(r"(\d{3,4})(?:-\d+)?$")
 
 
 def parse_room_name(name):
     m = RE_ROOMNAME.match((name or "").strip())
     if m:
-        return m.group(1).strip(), m.group(2).strip()
+        return re.sub(r"\s+", "", m.group(1)), m.group(2).strip()
     return (name or "").strip(), ""
+
+
+def floor_of(ho):
+    if RE_BASEMENT.search(ho):
+        return -1
+    m = RE_ROOMNO.search(ho)
+    return int(m.group(1)[0]) if m else None
 
 
 # 학술 건물이 아닌 곳(기숙사/철거/운동장 등)은 빈 강의실 도구에서 제외
@@ -134,11 +144,11 @@ BLDG_EXCLUDE = re.compile(
 )
 
 
-def is_lecture(room_type):
+def is_open_room(room_type):
     t = room_type or ""
     if re.search(r"연구실|사무실|도서실|회의실|상담실|준비실|사무|인권센터|행정", t):
         return False
-    return bool(re.search(r"강의실|실습|회화실|세미나|랩|스튜디오|실험|연습실", t))
+    return bool(re.search(r"강의실|회화실|세미나|토론", t))
 
 
 def main():
@@ -154,7 +164,7 @@ def main():
         if BLDG_EXCLUDE.search(b.get("bldgName", "")):
             continue
         for r in b["rooms"]:
-            if r.get("online"):
+            if r.get("online") or r["name"].startswith("이동수업"):
                 continue
             if r.get("failed"):
                 failed.append(r["name"])
@@ -163,11 +173,11 @@ def main():
             ho, roomType = parse_room_name(r.get("name") or r.get("ho", ""))
             sess = parse_sessions(raw)
             meta = parse_meta(raw, sess)
-            if not (is_lecture(roomType) or sess):
-                continue  # 연구실/사무실 등 제외
+            if not (is_open_room(roomType) or sess):
+                continue
             app_rooms.append({
                 "bldg": b["bldg"], "bldgName": b["bldgName"],
-                "code": r["code"], "ho": ho, "roomType": roomType,
+                "code": r["code"], "ho": ho, "roomType": roomType, "floor": floor_of(ho),
                 "capacity": meta["capacity"],
                 "usageWeekday": meta["usageWeekday"],
                 "usageDayNight": meta["usageDayNight"],
@@ -178,7 +188,9 @@ def main():
                 flat.append({"bldg": b["bldg"], "bldgName": b["bldgName"],
                              "ho": ho, "roomType": roomType,
                              "code": r["code"], "capacity": meta["capacity"], **s})
-    json.dump({"year": semester, "rooms": app_rooms},
+    collected = [b.get("collectedAt") for b in bldgs]
+    updated = max(collected) if all(collected) else date.fromtimestamp(max(map(os.path.getmtime, files))).isoformat()
+    json.dump({"year": semester, "updated": updated, "rooms": app_rooms},
               open(os.path.join(EXTRACTED, "app_data.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     json.dump(flat, open(os.path.join(EXTRACTED, "sessions_flat.json"), "w", encoding="utf-8"),
