@@ -44,11 +44,7 @@
 
 앱은 `data.json`을 먼저 읽고, 파일이 없으면 `data.sample.json`을 사용합니다. 따라서 저장소를 그대로 실행하면 실제 강의실 현황이 아닌 샘플관·예시관 데이터가 표시됩니다.
 
-수집 코드는 현재 **2026학년도 1학기**에 맞춰져 있습니다. 다른 학기를 수집하려면 다음 값을 함께 바꿔야 합니다.
-
-- `crawler/crawl_rooms.cjs`의 `YEAR`
-- 같은 파일의 Crownix `REPORT` URL에 있는 연도·학기 파라미터
-- `crawler/parse_rooms.py`가 결과 JSON에 기록하는 `year`
+수집 학기는 `SEMESTER` 환경변수(`2026-2`처럼 `YYYY-1` 또는 `YYYY-2`) 하나로 정합니다. 크롤러는 이 값으로 강의실 목록과 Crownix 리포트를 같은 학기로 조회하고, 결과 파일마다 학기를 기록합니다. 파서는 그 값을 그대로 앱 JSON의 `year`로 옮기며, 학기가 다른 `rooms_*.json`이 섞여 있으면 결과를 쓰지 않습니다.
 
 포털 화면이나 리포트 형식이 바뀌면 수집·파싱 규칙도 조정해야 할 수 있습니다. 또한 여기서 말하는 빈 강의실은 **정규 수업이 없는 공간**입니다. 예약, 행사, 출입 제한 등 실제 이용 가능 여부는 현장에서 확인해야 합니다. DJGongsil은 대진대학교 공식 서비스가 아닙니다.
 
@@ -79,7 +75,7 @@ npm install
 npx playwright install chromium
 
 # 전체 학술 건물 수집
-DREAMS_ID=학번 DREAMS_PW=비밀번호 BLDG=ALL node crawl_rooms.cjs
+SEMESTER=2026-2 DREAMS_ID=학번 DREAMS_PW=비밀번호 BLDG=ALL node crawl_rooms.cjs
 
 # 렌더 텍스트를 앱용 JSON으로 변환
 python3 parse_rooms.py
@@ -87,6 +83,8 @@ cp ../data/extracted/app_data.json ../app/public/data.json
 ```
 
 `BLDG=01,03,A7`처럼 건물 코드를 콤마로 구분하면 일부 건물만 수집합니다. 생성되는 실제 데이터와 자격증명 파일은 `.gitignore`로 제외합니다.
+
+수집기는 브라우저 탭 하나로 강의실을 하나씩 조회하고, 조회 사이에 `DELAY_MS`(기본 1500ms, 최소 500ms)만큼 쉽니다. 리포트 조회에 실패한 강의실은 `failed`로 표시되어 앱 데이터에서 빠집니다. 연속 5회 실패하면 포털 쪽이 바뀐 것으로 보고 수집을 멈춥니다.
 
 ## 배포
 

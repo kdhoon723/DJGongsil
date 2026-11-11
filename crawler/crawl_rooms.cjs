@@ -2,16 +2,17 @@
 // 흐름: 홈페이지 SSO 로그인 -> LinkPortal 포털 진입 -> 전체 건물 인벤토리
 //      -> 건물별 강의실 인벤토리 -> 강의실마다 Crownix 리포트 렌더텍스트 수집/파싱
 // 수집: 건물(코드/명), 강의실(코드/호수/유형), 세션(과목명/교수/과목번호/분반/요일/시간/수강인원), 방별 원본텍스트
-// 실행: NODE_PATH=.../autoTicket/node_modules \
-//       DREAMS_ID=학번 DREAMS_PW=비번 BLDG=01,03 node crawl_rooms.cjs   (BLDG=ALL 이면 전체 건물)
+// 실행: SEMESTER=2026-2 DREAMS_ID=학번 DREAMS_PW=비번 BLDG=01,03 node crawl_rooms.cjs   (BLDG=ALL 이면 전체 건물)
 const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
-const YEAR = "20261"; // 2026년도 1학기
+const SEMESTER = process.env.SEMESTER || "";
+const SEM = SEMESTER.match(/^(\d{4})-([12])$/);
 const ID = process.env.DREAMS_ID || "";
 const PW = process.env.DREAMS_PW || "";
 const BLDG_ARG = process.env.BLDG || "01";
+const DELAY_MS = Number(process.env.DELAY_MS || 1500);
 const OUT = path.join(__dirname, "..", "data", "extracted");
 
 const LOGIN_URL =
@@ -19,8 +20,12 @@ const LOGIN_URL =
 const PORTAL = "https://dreams2.daejin.ac.kr/sugang/LinkPortal.jsp?dvd=P";
 const FORM = "https://dreams2.daejin.ac.kr/sugang/center/Blsn011301.jsp";
 const REPORT = (room) =>
-  "https://dreams2.daejin.ac.kr/sugang/commonRd7Prt.jsp?path=https://dreams2.daejin.ac.kr/dreamsprint/" +
-  "&mrdname=d_blsn_time_t_room.mrd&mode00=&mode01=2026&mode02=1&mode03=" +
+  "https://dreams2.daejin.ac.kr/sugang/commonRd7Prt.jsp?path=dreamsprint/" +
+  "&mrdname=d_blsn_time_t_room.mrd&mode00=&mode01=" +
+  SEM[1] +
+  "&mode02=" +
+  SEM[2] +
+  "&mode03=" +
   room +
   "&mode04=P&mode05=&mode06=&mode07=&mode08=&mode09=";
 
@@ -79,7 +84,7 @@ async function getRooms(page, bldg) {
         f.target = "";
         f.submit();
       },
-      { y: YEAR, b: bldg }
+      { y: SEM[1] + SEM[2], b: bldg }
     ),
   ]);
   // 강의실 목록이 채워질 때까지 대기
@@ -149,10 +154,10 @@ async function getRoomReport(page, code) {
     }
     const rendered = await page
       .waitForFunction(
-        () => /출력일자/.test(document.body.innerText || ""),
+        () => /출력일자|\[ERS-/.test(document.body.innerText || ""),
         { timeout: 12000 }
       )
-      .then(() => true)
+      .then(() => page.evaluate(() => /출력일자/.test(document.body.innerText || "")))
       .catch(() => false);
     if (rendered) {
       await sleep(700); // 셀(SVG) 렌더 안정화
@@ -160,7 +165,7 @@ async function getRoomReport(page, code) {
       return { raw: text, sessions: parseSchedule(text) };
     }
   }
-  return { raw: "", sessions: [] };
+  return null;
 }
 
 const isOnline = (name) => /e-learning|온라인/.test(name);
@@ -170,10 +175,12 @@ const shouldFetch = (name) =>
   !/교수연구실|연구실|사무실|과제도서실|회의실|상담실|준비실|인권센터|행정|학과사무/.test(name);
 // 비학술 건물(기숙사/철거/운동장 등)은 통째로 스킵 = 큰 시간 절약
 const BLDG_SKIP =
-  /철거|기숙사|운동장|스탠드|경비|총장공관|파워플랜트|학군단|쑤저우|하얼빈|야외|예비군/;
+  /철거|기숙사|성실관|신념관|운동장|스탠드|경비|총장공관|파워플랜트|학군단|쑤저우|하얼빈|야외|예비군/;
 
 (async () => {
   if (!ID || !PW) throw new Error("DREAMS_ID/DREAMS_PW env 필요");
+  if (!SEM) throw new Error("SEMESTER env 필요 (예: 2026-2)");
+  if (!Number.isFinite(DELAY_MS) || DELAY_MS < 500) throw new Error("DELAY_MS는 500 이상 숫자여야 함");
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
     headless: true,
@@ -192,7 +199,7 @@ const BLDG_SKIP =
   const buildings = await getBuildings(page);
   fs.writeFileSync(
     path.join(OUT, "buildings.json"),
-    JSON.stringify({ year: YEAR, buildings }, null, 2)
+    JSON.stringify({ year: SEMESTER, buildings }, null, 2)
   );
   console.log(`[*] 건물 ${buildings.length}개 인벤토리 저장`);
 
@@ -203,6 +210,8 @@ const BLDG_SKIP =
 
   const all = [];
   const flat = []; // 재활용용 마스터 테이블 (세션 1건 = 1행)
+  const failed = [];
+  let failStreak = 0;
   for (const code of targets) {
     const bName = (buildings.find((b) => b.code === code) || {}).name || code;
     if (BLDG_SKIP.test(bName)) {
@@ -211,17 +220,30 @@ const BLDG_SKIP =
     }
     const rooms = await getRooms(page, code);
     console.log(`[건물 ${code} ${bName}] 방 ${rooms.length}개`);
-    const bldgData = { bldg: code, bldgName: bName, year: YEAR, rooms: [] };
+    const bldgData = { bldg: code, bldgName: bName, year: SEMESTER, rooms: [] };
     for (const room of rooms) {
       const { ho, roomType } = parseRoomName(room.name);
       const online = isOnline(room.name);
       let rep = { raw: "", sessions: [] };
+      let fetchFailed = false;
       if (shouldFetch(room.name)) {
         try {
-          rep = await getRoomReport(page, room.code);
+          const got = await getRoomReport(page, room.code);
+          if (got) rep = got;
+          else fetchFailed = true;
         } catch (e) {
+          fetchFailed = true;
           console.log(`   ! ${room.name} 실패: ${e.message}`);
         }
+        if (fetchFailed) {
+          failed.push(room.name);
+          if (++failStreak >= 5) {
+            throw new Error(`리포트 연속 ${failStreak}회 실패: ${failed.slice(-failStreak).join(", ")}`);
+          }
+        } else {
+          failStreak = 0;
+        }
+        await sleep(DELAY_MS);
       }
       const rec = {
         code: room.code,
@@ -229,6 +251,7 @@ const BLDG_SKIP =
         ho,
         roomType,
         online,
+        failed: fetchFailed,
         sessionCount: rep.sessions.length,
         sessions: rep.sessions,
         raw: rep.raw,
@@ -244,8 +267,7 @@ const BLDG_SKIP =
           ...s,
         });
       }
-      console.log(`   ${room.name}: ${rep.sessions.length}세션`);
-      await sleep(120);
+      console.log(`   ${room.name}: ${fetchFailed ? "실패" : rep.sessions.length + "세션"}`);
     }
     all.push(bldgData);
     fs.writeFileSync(
@@ -259,8 +281,9 @@ const BLDG_SKIP =
     JSON.stringify(flat, null, 2)
   );
   console.log(
-    `[완료] 건물 ${all.length} / 방 ${all.flatMap((b) => b.rooms).length} / 세션 ${flat.length}`
+    `[완료] 건물 ${all.length} / 방 ${all.flatMap((b) => b.rooms).length} / 세션 ${flat.length} / 실패 ${failed.length}`
   );
+  if (failed.length) console.log("[실패 강의실]", failed.join(", "));
   await browser.close();
 })().catch((e) => {
   console.error("ERROR:", e.message);

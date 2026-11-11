@@ -118,7 +118,7 @@ def parse_room_name(name):
 
 # 학술 건물이 아닌 곳(기숙사/철거/운동장 등)은 빈 강의실 도구에서 제외
 BLDG_EXCLUDE = re.compile(
-    r"철거|기숙사|운동장|스탠드|경비|총장공관|파워플랜트|학군단|쑤저우|하얼빈|야외|예비군"
+    r"철거|기숙사|성실관|신념관|운동장|스탠드|경비|총장공관|파워플랜트|학군단|쑤저우|하얼빈|야외|예비군"
 )
 
 
@@ -132,13 +132,20 @@ def is_lecture(room_type):
 def main():
     files = [f for f in sorted(glob.glob(os.path.join(EXTRACTED, "rooms_*.json")))
              if not f.endswith("rooms_all.json")]
-    app_rooms, flat = [], []
-    for f in files:
-        b = json.load(open(f, encoding="utf-8"))
+    bldgs = [json.load(open(f, encoding="utf-8")) for f in files]
+    semesters = {b.get("year") for b in bldgs}
+    if len(semesters) != 1:
+        raise SystemExit(f"rooms_*.json 학기가 하나가 아님: {sorted(map(str, semesters))}")
+    semester = semesters.pop()
+    app_rooms, flat, failed = [], [], []
+    for b in bldgs:
         if BLDG_EXCLUDE.search(b.get("bldgName", "")):
             continue
         for r in b["rooms"]:
             if r.get("online"):
+                continue
+            if r.get("failed"):
+                failed.append(r["name"])
                 continue
             raw = r.get("raw", "")
             ho, roomType = parse_room_name(r.get("name") or r.get("ho", ""))
@@ -159,13 +166,15 @@ def main():
                 flat.append({"bldg": b["bldg"], "bldgName": b["bldgName"],
                              "ho": ho, "roomType": roomType,
                              "code": r["code"], "capacity": meta["capacity"], **s})
-    json.dump({"year": "2026-1", "rooms": app_rooms},
+    json.dump({"year": semester, "rooms": app_rooms},
               open(os.path.join(EXTRACTED, "app_data.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     json.dump(flat, open(os.path.join(EXTRACTED, "sessions_flat.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     empty = sum(1 for r in app_rooms if not r["sessions"])
-    print(f"강의실 {len(app_rooms)}개 (수업無 {empty}) / 세션 {len(flat)}")
+    print(f"[{semester}] 강의실 {len(app_rooms)}개 (수업無 {empty}) / 세션 {len(flat)}")
+    if failed:
+        print(f"  조회 실패로 제외 {len(failed)}개: {', '.join(failed)}")
     for r in app_rooms:
         if r["ho"] == "인105":
             print(f"  인105 수용인원={r['capacity']} 종합사용률={r['usageSummary']}")
